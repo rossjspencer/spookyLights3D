@@ -150,6 +150,79 @@ struct object3D *newCyl(double ra, double rd, double rs, double rg, double r, do
  return cylinder;
 }
 
+struct object3D *newCone(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny)
+{
+ // the canonical cone has a circular base of radius 1 at z = 0 and a tip at z = 1
+ struct object3D *cone=(struct object3D *)calloc(1,sizeof(struct object3D));
+
+ if (!cone) fprintf(stderr,"Unable to allocate new cone, out of memory!\n");
+ else
+ {
+  cone->alb.ra=ra;
+  cone->alb.rd=rd;
+  cone->alb.rs=rs;
+  cone->alb.rg=rg;
+  cone->col.R=r;
+  cone->col.G=g;
+  cone->col.B=b;
+  cone->shinyness=shiny;
+  cone->intersect=&coneIntersect;
+  memcpy(&cone->T[0][0],&eye4x4[0][0],16*sizeof(double));
+  memcpy(&cone->Tinv[0][0],&eye4x4[0][0],16*sizeof(double));
+  cone->next=NULL;
+ }
+ return cone;
+}
+
+struct object3D *newCube(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny)
+{
+ // the canonical cube occupies the region x, y, z in [0, 1]
+ struct object3D *cube=(struct object3D *)calloc(1,sizeof(struct object3D));
+
+ if (!cube) fprintf(stderr,"Unable to allocate new cube, out of memory!\n");
+ else
+ {
+  cube->alb.ra=ra;
+  cube->alb.rd=rd;
+  cube->alb.rs=rs;
+  cube->alb.rg=rg;
+  cube->col.R=r;
+  cube->col.G=g;
+  cube->col.B=b;
+  cube->shinyness=shiny;
+  cube->intersect=&cubeIntersect;
+  memcpy(&cube->T[0][0],&eye4x4[0][0],16*sizeof(double));
+  memcpy(&cube->Tinv[0][0],&eye4x4[0][0],16*sizeof(double));
+  cube->next=NULL;
+ }
+ return cube;
+}
+
+struct object3D *newIcosahedron(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny)
+{
+ // the canonical icosahedron is centered at the origin with 20 equilateral triangular faces
+ // each edge has length 1 and the vertices follow the golden ratio coordinates
+ struct object3D *icosahedron=(struct object3D *)calloc(1,sizeof(struct object3D));
+
+ if (!icosahedron) fprintf(stderr,"Unable to allocate new icosahedron, out of memory!\n");
+ else
+ {
+  icosahedron->alb.ra=ra;
+  icosahedron->alb.rd=rd;
+  icosahedron->alb.rs=rs;
+  icosahedron->alb.rg=rg;
+  icosahedron->col.R=r;
+  icosahedron->col.G=g;
+  icosahedron->col.B=b;
+  icosahedron->shinyness=shiny;
+  icosahedron->intersect=&icosahedronIntersect;
+  memcpy(&icosahedron->T[0][0],&eye4x4[0][0],16*sizeof(double));
+  memcpy(&icosahedron->Tinv[0][0],&eye4x4[0][0],16*sizeof(double));
+  icosahedron->next=NULL;
+ }
+ return icosahedron;
+}
+
 void planeIntersect(struct object3D *plane, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n)
 {
 
@@ -452,6 +525,348 @@ void cylIntersect(struct object3D *cylinder, struct ray3D *ray, double *lambda, 
 
  // put the normal into world coordinates
  normalTransform(&cylinderCoordinateNormal, n, cylinder);
+}
+
+void coneIntersect(struct object3D *cone, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n)
+{
+ // the canonical cone has x*x + y*y = (1-z)*(1-z) for z in [0, 1], with a circular base at z = 0
+ // substitute the ray into this equation to find possible intersections with the curved surface
+ // put the ray into canonical cone coordinates
+ struct ray3D transformedRay;
+ rayTransform(ray, &transformedRay, cone);
+
+ // use shorter names for the ray origin and direction components
+ double x = transformedRay.p0.px;
+ double y = transformedRay.p0.py;
+ double z = transformedRay.p0.pz;
+ double dx = transformedRay.d.px;
+ double dy = transformedRay.d.py;
+ double dz = transformedRay.d.pz;
+
+ // collect the coefficients of the quadratic in lambda
+ double quadraticA = dx*dx + dy*dy - dz*dz;
+ double quadraticB = 2 * (x*dx + y*dy + (1-z)*dz);
+ double quadraticC = x*x + y*y - (1-z)*(1-z);
+ // keep track of the closest valid intersection and whether it was on the base
+ double lambdaCandidate = -1;
+ int hitBase = 0;
+
+ // check the curved face, including the case where the quadratic becomes linear
+ // a valid curved-face hit must have positive lambda and a z coordinate between 0 and 1
+ if (fabs(quadraticA) < TOL)
+ {
+  // when the quadratic term is zero, solve the remaining linear equation
+  if (fabs(quadraticB) >= TOL)
+  {
+   double candidate = -quadraticC / quadraticB;
+   double hitZ = z + candidate*dz;
+   if (candidate >= TOL && hitZ >= -TOL && hitZ <= 1 + TOL)
+    lambdaCandidate = candidate;
+  }
+ }
+ else
+ {
+  // otherwise, solve the quadratic if there are real roots
+  double discriminant = quadraticB*quadraticB - 4*quadraticA*quadraticC;
+  if (discriminant >= 0)
+  {
+   double lambda1 = (-quadraticB - sqrt(discriminant)) / (2*quadraticA);
+   double lambda2 = (-quadraticB + sqrt(discriminant)) / (2*quadraticA);
+
+   // check both roots and keep whichever valid intersection is closer
+   double hitZ = z + lambda1*dz;
+   if (lambda1 >= TOL && hitZ >= -TOL && hitZ <= 1 + TOL)
+    lambdaCandidate = lambda1;
+
+   hitZ = z + lambda2*dz;
+   if (lambda2 >= TOL && hitZ >= -TOL && hitZ <= 1 + TOL &&
+       (lambdaCandidate < 0 || lambda2 < lambdaCandidate))
+    lambdaCandidate = lambda2;
+  }
+ }
+
+ // check the circular base at z = 0
+ // the ray must reach that plane inside the unit circle and before any previous hit
+ if (fabs(dz) >= TOL)
+ {
+  double baseLambda = -z / dz;
+  double baseX = x + baseLambda*dx;
+  double baseY = y + baseLambda*dy;
+  if (baseLambda >= TOL && baseX*baseX + baseY*baseY <= 1 + TOL &&
+      (lambdaCandidate < 0 || baseLambda < lambdaCandidate))
+  {
+   lambdaCandidate = baseLambda;
+   hitBase = 1;
+  }
+ }
+
+ // return -1 if neither the curved face nor the base was intersected
+ if (lambdaCandidate < 0)
+ {
+  *lambda = -1;
+  return;
+ }
+
+ // calculate the intersection point in canonical cone coordinates
+ *lambda = lambdaCandidate;
+ p->px = x + lambdaCandidate*dx;
+ p->py = y + lambdaCandidate*dy;
+ p->pz = z + lambdaCandidate*dz;
+ p->pw = 1;
+
+ // the base normal points downward; the curved face normal follows the surface gradient
+ struct point3D coneCoordinateNormal;
+ if (hitBase)
+ {
+  coneCoordinateNormal.px = 0;
+  coneCoordinateNormal.py = 0;
+  coneCoordinateNormal.pz = -1;
+ }
+ else
+ {
+  // use the gradient of x*x + y*y - (1-z)*(1-z) = 0
+  coneCoordinateNormal.px = p->px;
+  coneCoordinateNormal.py = p->py;
+  coneCoordinateNormal.pz = 1 - p->pz;
+
+  // the exact tip has no unique normal; use the upward direction there
+  if (coneCoordinateNormal.px*coneCoordinateNormal.px +
+      coneCoordinateNormal.py*coneCoordinateNormal.py +
+      coneCoordinateNormal.pz*coneCoordinateNormal.pz < TOL*TOL)
+   coneCoordinateNormal.pz = 1;
+ }
+ coneCoordinateNormal.pw = 0;
+
+ // put the intersection point and normal back into world coordinates
+ matVecMult(cone->T, p);
+ normalTransform(&coneCoordinateNormal, n, cone);
+}
+
+void cubeIntersect(struct object3D *cube, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n)
+{
+ // the canonical cube occupies x, y, z in [0, 1]
+ // find where the ray enters and exits each pair of parallel faces
+ // put the ray into canonical cube coordinates
+ struct ray3D transformedRay;
+ rayTransform(ray, &transformedRay, cube);
+
+ // store the ray components in arrays so we can check all three axes in the same loop
+ double origin[3] = {transformedRay.p0.px, transformedRay.p0.py, transformedRay.p0.pz};
+ double direction[3] = {transformedRay.d.px, transformedRay.d.py, transformedRay.d.pz};
+ // nearLambda is the latest entry into the cube, and farLambda is the earliest exit
+ // also keep the axis and sign needed to calculate the surface normal
+ double nearLambda = -INFINITY;
+ double farLambda = INFINITY;
+ int nearAxis = -1;
+ int farAxis = -1;
+ double nearSign = 0;
+ double farSign = 0;
+
+ // each axis restricts the allowable interval of intersection distances
+ for (int axis = 0; axis < 3; axis++)
+ {
+  // a parallel ray cannot hit these faces unless it already lies within their boundaries
+  if (fabs(direction[axis]) < TOL)
+  {
+   if (origin[axis] < 0 || origin[axis] > 1)
+   {
+    *lambda = -1;
+    return;
+   }
+   continue;
+  }
+
+  // solve for intersections with the planes at coordinate 0 and 1
+  double entry = (0 - origin[axis]) / direction[axis];
+  double exit = (1 - origin[axis]) / direction[axis];
+  double entrySign = -1;
+  double exitSign = 1;
+
+  // if the ray is travelling in the negative direction, swap the entry and exit faces
+  if (entry > exit)
+  {
+   double temporary = entry;
+   entry = exit;
+   exit = temporary;
+   entrySign = 1;
+   exitSign = -1;
+  }
+
+  // keep the most restrictive entry and exit distances from the axes checked so far
+  if (entry > nearLambda)
+  {
+   nearLambda = entry;
+   nearAxis = axis;
+   nearSign = entrySign;
+  }
+  if (exit < farLambda)
+  {
+   farLambda = exit;
+   farAxis = axis;
+   farSign = exitSign;
+  }
+  // when the entry is after the exit, there is no common interval inside the cube
+  if (nearLambda > farLambda)
+  {
+   *lambda = -1;
+   return;
+  }
+ }
+
+ // prefer the entry face if it is in front of the ray origin
+ double lambdaCandidate;
+ int normalAxis;
+ double normalSign;
+ if (nearLambda >= TOL)
+ {
+  lambdaCandidate = nearLambda;
+  normalAxis = nearAxis;
+  normalSign = nearSign;
+ }
+ // otherwise, a ray starting inside the cube can still hit an exit face
+ else if (farLambda >= TOL && farAxis >= 0)
+ {
+  // when the ray starts inside the cube, return the exit face
+  lambdaCandidate = farLambda;
+  normalAxis = farAxis;
+  normalSign = farSign;
+ }
+ else
+ {
+  *lambda = -1;
+  return;
+ }
+
+ // calculate the intersection point in canonical cube coordinates
+ *lambda = lambdaCandidate;
+ p->px = origin[0] + lambdaCandidate*direction[0];
+ p->py = origin[1] + lambdaCandidate*direction[1];
+ p->pz = origin[2] + lambdaCandidate*direction[2];
+ p->pw = 1;
+
+ // the normal points along the axis of the face we hit, with the outward sign
+ struct point3D cubeCoordinateNormal = {0, 0, 0, 0};
+ if (normalAxis == 0) cubeCoordinateNormal.px = normalSign;
+ if (normalAxis == 1) cubeCoordinateNormal.py = normalSign;
+ if (normalAxis == 2) cubeCoordinateNormal.pz = normalSign;
+
+ // put the intersection point and normal back into world coordinates
+ matVecMult(cube->T, p);
+ normalTransform(&cubeCoordinateNormal, n, cube);
+}
+
+void icosahedronIntersect(struct object3D *icosahedron, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n)
+{
+ // we consider the canonical icosahedron to be centered at the origin, with all edges of length 1
+ // the twelve vertices are given using the golden ratio, and the twenty faces are triangles
+ double phi = (1 + sqrt(5.0)) / 2;
+ double vertices[12][3] = {
+  {0, .5, phi/2}, {0, -.5, phi/2}, {0, .5, -phi/2}, {0, -.5, -phi/2},
+  {.5, phi/2, 0}, {-.5, phi/2, 0}, {.5, -phi/2, 0}, {-.5, -phi/2, 0},
+  {phi/2, 0, .5}, {-phi/2, 0, .5}, {phi/2, 0, -.5}, {-phi/2, 0, -.5}
+ };
+
+ // each row contains the indices of one triangle's vertices, ordered for outward normals
+ static const int faces[20][3] = {
+  {0, 1, 8}, {0, 4, 5}, {0, 5, 9}, {0, 8, 4}, {0, 9, 1},
+  {1, 6, 8}, {5, 4, 2}, {7, 1, 9}, {7, 3, 6}, {7, 6, 1},
+  {10, 2, 4}, {10, 3, 2}, {10, 4, 8}, {10, 6, 3}, {10, 8, 6},
+  {11, 2, 3}, {11, 3, 7}, {11, 5, 2}, {11, 7, 9}, {11, 9, 5}
+ };
+
+ // put the ray into canonical icosahedron coordinates
+ struct ray3D transformedRay;
+ rayTransform(ray, &transformedRay, icosahedron);
+
+ double bestLambda = -1;
+ struct point3D bestNormal;
+
+ // check whether the ray intersects each of the twenty triangular faces
+ for (int i = 0; i < 20; i++)
+ {
+  const double *v0 = vertices[faces[i][0]];
+  const double *v1 = vertices[faces[i][1]];
+  const double *v2 = vertices[faces[i][2]];
+
+  // calculate the two edges from the first vertex and their cross product (the face normal)
+  struct point3D e1 = {v1[0]-v0[0], v1[1]-v0[1], v1[2]-v0[2], 0};
+  struct point3D e2 = {v2[0]-v0[0], v2[1]-v0[1], v2[2]-v0[2], 0};
+  struct point3D faceNormal = {
+   e1.py*e2.pz - e1.pz*e2.py,
+   e1.pz*e2.px - e1.px*e2.pz,
+   e1.px*e2.py - e1.py*e2.px,
+   0
+  };
+
+  // first intersect the ray with the infinite plane containing the triangle
+  double dDotN = dot(&transformedRay.d, &faceNormal);
+  if (fabs(dDotN) < TOL) continue;
+
+  struct point3D originToFace = {
+   v0[0] - transformedRay.p0.px,
+   v0[1] - transformedRay.p0.py,
+   v0[2] - transformedRay.p0.pz,
+   0
+  };
+  double candidate = dot(&originToFace, &faceNormal) / dDotN;
+
+  // ignore intersections behind the ray origin or farther than a previous hit
+  if (candidate < TOL || (bestLambda >= 0 && candidate >= bestLambda)) continue;
+
+  // calculate the intersection point on the plane
+  struct point3D hit = {
+   transformedRay.p0.px + candidate*transformedRay.d.px,
+   transformedRay.p0.py + candidate*transformedRay.d.py,
+   transformedRay.p0.pz + candidate*transformedRay.d.pz,
+   1
+  };
+
+  // check all three edges using the cross-product test from the notes
+  // the intersection is inside if (edge x vector_to_hit) dot faceNormal is nonnegative for every edge
+  int inside = 1;
+  for (int j = 0; j < 3; j++)
+  {
+   const double *start = vertices[faces[i][j]];
+   const double *end = vertices[faces[i][(j+1)%3]];
+   struct point3D edge = {end[0]-start[0], end[1]-start[1], end[2]-start[2], 0};
+   struct point3D toHit = {hit.px-start[0], hit.py-start[1], hit.pz-start[2], 0};
+   struct point3D edgeCross = {
+    edge.py*toHit.pz - edge.pz*toHit.py,
+    edge.pz*toHit.px - edge.px*toHit.pz,
+    edge.px*toHit.py - edge.py*toHit.px,
+    0
+   };
+   if (dot(&edgeCross, &faceNormal) < -TOL)
+   {
+    inside = 0;
+    break;
+   }
+  }
+
+  // remember the closest face that contains the plane intersection
+  if (inside)
+  {
+   bestLambda = candidate;
+   bestNormal = faceNormal;
+  }
+ }
+
+ // return -1 if none of the triangular faces was intersected
+ if (bestLambda < 0)
+ {
+  *lambda = -1;
+  return;
+ }
+
+ // calculate the canonical intersection point, then transform it and the normal into world coordinates
+ *lambda = bestLambda;
+ p->px = transformedRay.p0.px + bestLambda*transformedRay.d.px;
+ p->py = transformedRay.p0.py + bestLambda*transformedRay.d.py;
+ p->pz = transformedRay.p0.pz + bestLambda*transformedRay.d.pz;
+ p->pw = 1;
+ matVecMult(icosahedron->T, p);
+ normalTransform(&bestNormal, n, icosahedron);
+
 }
 
 void insertPLS(struct pointLS *l, struct pointLS **list)

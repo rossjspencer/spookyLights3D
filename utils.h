@@ -61,13 +61,19 @@ void normalTransform(struct point3D *n_orig, struct point3D *n_transformed, stru
 void insertObject(struct object3D *o, struct object3D **list);
 void insertPLS(struct pointLS *l, struct pointLS **list);
 
-// the base project supports planes, spheres, and cylinders
+// each geometric primitive supplies its own intersection function
 struct object3D *newPlane(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny);
 struct object3D *newSphere(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny);
 struct object3D *newCyl(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny);
+struct object3D *newCone(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny);
+struct object3D *newCube(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny);
+struct object3D *newIcosahedron(double ra, double rd, double rs, double rg, double r, double g, double b, double shiny);
 void planeIntersect(struct object3D *plane, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n);
 void sphereIntersect(struct object3D *sphere, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n);
 void cylIntersect(struct object3D *cylinder, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n);
+void coneIntersect(struct object3D *cone, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n);
+void cubeIntersect(struct object3D *cube, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n);
+void icosahedronIntersect(struct object3D *icosahedron, struct ray3D *ray, double *lambda, struct point3D *p, struct point3D *n);
 
 void invert(double *T, double *Tinv);
 void RotateXMat(double T[4][4], double theta);
