@@ -6,7 +6,7 @@ spookyLights3D is a 3D ray tracer written in C. This is the base version of the 
 
 ## Current functionality
 
-* Planes, spheres, and cylinders, each with its own intersection function.
+* Planes, spheres, cylinders, cones, cubes, and icosahedra, each with their own intersection functions.
 * Camera and object transformations using 4×4 matrices.
 * Phong lighting with ambient, diffuse, and specular components.
 * Shadows from point light sources.
@@ -56,7 +56,7 @@ ctest --test-dir build --output-on-failure
 
 ## About this version
 
-I have kept this version focused on the basic renderer. I plan to add additional primitives and procedural geometry separately as the project develops. Maybe some other stuff too, who knows?
+I have kept this version focused on the basic renderer, plus some additional primitives for practice with intersections and geometry. Next, I will try to add procedural geometry. Maybe some other stuff too, who knows?
 
 ## Attribution
 
